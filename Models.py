@@ -1,6 +1,6 @@
 import keras
 from keras import layers
-#from keras import ops
+from keras import ops
 #import keras
 
 # Build model

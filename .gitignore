@@ -1,5 +1,5 @@
-/.ipynb_checkpoints/k-fold-checkpoint.py
-/.ipynb_checkpoints/Models-checkpoint.py
-/.ipynb_checkpoints/Unet-checkpoint.ipynb
-/.ipynb_checkpoints/Untitled-checkpoint.ipynb
+/.ipynb_checkpoints/*
+/__pycache__/*
 /.env
+/checkpoints_resnet50_v2/*.h5
+/*.h5
