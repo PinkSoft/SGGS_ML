@@ -1,0 +1,14 @@
+# 1) Identify the PCI-ID of the GPU (with domain ID)
+#    In my case: PCI_ID="0000.81:00.0"
+lspci -D | grep NVIDIA
+# 2) Write the NUMA affinity to the device's numa_node file.
+echo 0 | sudo tee -a "/sys/bus/pci/devices/<PCI_ID>/numa_node"
+
+nvidia-smi topo -m
+#
+#       GPU0  CPU Affinity    NUMA Affinity
+# GPU0     X  0-127           N/A
+
+sudo crontab -e
+# Add the following line
+@reboot (echo 0 | tee -a "/sys/bus/pci/devices/<PCI_ID>/numa_node")
