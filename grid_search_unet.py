@@ -22,7 +22,7 @@ import unet_model
 
 #import matplotlib.pyplot as plt
 
-num = 0
+num = 40
 
 def system_config(SEED_VALUE):
     # Set python `random` seed.
@@ -43,7 +43,7 @@ def load_path():
 
 segments = {
     0: 'Lumen',  # Lumen
-    1: 'Stenose',  # Stenose
+    1: 'Stenosis',  # Stenose
     2: 'Multi',  # Lumen and stenose
     }
 
@@ -66,7 +66,7 @@ class TrainingConfig:
     TRAIN_NO : str = "00"
     CKPT_DIR: str = os.path.join("/home/bp/Development/SGGS_ML", "checkpoints_"+"_".join(MODEL.split("_")[:2]),
                                         "_".join(MODEL.split("_")[:2])+"_"+TRAIN_NO+".h5")
-    LOGS_DIR: str = os.path.join("/home/bp/Development/SGGS_ML", "logs_"+"_".join(MODEL.split("_")[:2]))
+    LOGS_DIR: str = os.path.join("/home/bp/Development/SGGS_ML/logs", "_".join(MODEL.split("_")[:2]))
     HIST_DIR: str = os.path.join("/home/bp/Development/SGGS_ML/hist", "_".join(MODEL.split("_")[:2]),
                                         ""+"_".join(MODEL.split("_")[:2])+"_"+TRAIN_NO)
     
@@ -189,7 +189,7 @@ def get_callbacks(
 
     # Update file path if saving best model weights.
     if save_weights_only:
-        checkpoint_filepath = "/home/bp/Development/SGGS_ML/checkpoints_Unet/S_" + TrainingConfig.MODEL + "_" + str(num) + ".h5"
+        checkpoint_filepath =  "/home/bp/Development/SGGS_ML/checkpoints/Unet/S_" + TrainingConfig.MODEL + "_" + str(num) + ".h5"
 
     model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
         filepath=checkpoint_filepath,
@@ -217,8 +217,8 @@ def save_results(df, path):
 
 if __name__ == "__main__":
 
-    learning_rate = (5e-2, 1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 5e-5, 1e-5, 5e-6, 1e-6) #1e-4
-    batch_size = (20, 24, 28, 32) #(4, 8, 12, 16, 20, 24, 28, 32) # 16
+    learning_rate = (5e-2, 1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 5e-5, 1e-5, 5e-6, 1e-6)
+    batch_size = (4, 8, 12, 16, 20, 24, 28, 32) # 16
     system_config(SEED_VALUE=42)
     train_config = TrainingConfig()
     data_config = DatasetConfig()
@@ -263,8 +263,7 @@ if __name__ == "__main__":
             )
 
             # Build model.        
-            model = unet_model.get_unet_model(image_size=data_config.IMAGE_SIZE, 
-                                              num_classes=data_config.NUM_CLASSES)
+            model = unet_model.get_unet_model(image_size=data_config.IMAGE_SIZE, num_classes=data_config.NUM_CLASSES)
             # Get callbacks.
             callbacks = get_callbacks(train_config)
             # Define Loss.
@@ -285,8 +284,7 @@ if __name__ == "__main__":
                     callbacks=callbacks
                 )
                 save_results(history.history, train_config.HIST_DIR + '_' + str(num))
-                model.load_weights( "/home/bp/Development/SGGS_ML/checkpoints_Unet/S_" 
-                                   + TrainingConfig.MODEL + "_" + str(num) + ".h5") #train_config.CKPT_DIR)    
+                model.load_weights( "/home/bp/Development/SGGS_ML/checkpoints/Unet/S_" + TrainingConfig.MODEL + "_" + str(num) + ".h5") #train_config.CKPT_DIR)    
                 evaluate = model.evaluate(test_dataset)
                 #print("Test loss:", evaluate[2])
                 hist_df = pd.DataFrame(history.history)
@@ -326,9 +324,7 @@ if __name__ == "__main__":
                     }
             #result_df = result_df.append(new_row_data, ignore_index=True)
             result_df = pd.concat([result_df, pd.DataFrame([new_row_data])], ignore_index=True)
-            save_results(result_df, "/home/bp/Development/SGGS_ML/results/S_" + 
-                         str(num) + "_" + TrainingConfig.MODEL)
+            save_results(result_df, "/home/bp/Development/SGGS_ML/results/S_" + str(num) + "_" + TrainingConfig.MODEL)
             num += 1
             #print('Batchsize: ',batch, ' LearningRate: ', lr)
-    save_results(result_df, "/home/bp/Development/SGGS_ML/S_results" + 
-                 "_" + TrainingConfig.MODEL)
+    save_results(result_df, "/home/bp/Development/SGGS_ML/S_results" + "_" + TrainingConfig.MODEL)

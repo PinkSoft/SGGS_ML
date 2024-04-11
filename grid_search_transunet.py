@@ -18,11 +18,11 @@ import keras
 from keras import layers
 
 import image_util as iu
-import unet_model
+import Models as models
 
 #import matplotlib.pyplot as plt
 
-num = 0
+num = 40
 
 def system_config(SEED_VALUE):
     # Set python `random` seed.
@@ -43,7 +43,7 @@ def load_path():
 
 segments = {
     0: 'Lumen',  # Lumen
-    1: 'Stenose',  # Stenose
+    1: 'Stenosis',  # Stenose
     2: 'Multi',  # Lumen and stenose
     }
 
@@ -66,7 +66,7 @@ class TrainingConfig:
     TRAIN_NO : str = "00"
     CKPT_DIR: str = os.path.join("/home/bp/Development/SGGS_ML", "checkpoints_"+"_".join(MODEL.split("_")[:2]),
                                         "_".join(MODEL.split("_")[:2])+"_"+TRAIN_NO+".h5")
-    LOGS_DIR: str = os.path.join("/home/bp/Development/SGGS_ML", "logs_"+"_".join(MODEL.split("_")[:2]))
+    LOGS_DIR: str = os.path.join("/home/bp/Development/SGGS_ML/logs", "_".join(MODEL.split("_")[:2]))
     HIST_DIR: str = os.path.join("/home/bp/Development/SGGS_ML/hist", "_".join(MODEL.split("_")[:2]),
                                         ""+"_".join(MODEL.split("_")[:2])+"_"+TRAIN_NO)
     
@@ -85,63 +85,6 @@ id2color = {
     1: (255, 0, 0),  # lumen
     2: (0, 0, 255),  # stenose
 }
-
-def get_model(img_size=(512,512), num_classes=2):
-    inputs = keras.Input(shape=img_size + (3,))
-
-    ### [First half of the network: downsampling inputs] ###
-
-    # Entry block
-    x = layers.Conv2D(32, 3, strides=2, padding="same")(inputs)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation("relu")(x)
-
-    previous_block_activation = x  # Set aside residual
-
-    # Blocks 1, 2, 3 are identical apart from the feature depth.
-    for filters in [64, 128, 256, 512]:
-        x = layers.Activation("relu")(x)
-        x = layers.SeparableConv2D(filters, 3, padding="same")(x)
-        x = layers.BatchNormalization()(x)
-
-        x = layers.Activation("relu")(x)
-        x = layers.SeparableConv2D(filters, 3, padding="same")(x)
-        x = layers.BatchNormalization()(x)
-
-        x = layers.MaxPooling2D(3, strides=2, padding="same")(x)
-
-        # Project residual
-        residual = layers.Conv2D(filters, 1, strides=2, padding="same")(
-            previous_block_activation
-        )
-        x = layers.add([x, residual])  # Add back residual
-        previous_block_activation = x  # Set aside next residual
-
-    ### [Second half of the network: upsampling inputs] ###
-
-    for filters in [512, 256, 128, 64, 32]:
-        x = layers.Activation("relu")(x)
-        x = layers.Conv2DTranspose(filters, 3, padding="same")(x)
-        x = layers.BatchNormalization()(x)
-
-        x = layers.Activation("relu")(x)
-        x = layers.Conv2DTranspose(filters, 3, padding="same")(x)
-        x = layers.BatchNormalization()(x)
-
-        x = layers.UpSampling2D(2)(x)
-
-        # Project residual
-        residual = layers.UpSampling2D(2)(previous_block_activation)
-        residual = layers.Conv2D(filters, 1, padding="same")(residual)
-        x = layers.add([x, residual])  # Add back residual
-        previous_block_activation = x  # Set aside next residual
-
-    # Add a per-pixel classification layer
-    outputs = layers.Conv2D(num_classes, 3, activation="softmax", padding="same")(x)
-
-    # Define the model
-    model = keras.Model(inputs, outputs)
-    return model
 
 def mean_iou(y_true, y_pred):
 
@@ -189,7 +132,7 @@ def get_callbacks(
 
     # Update file path if saving best model weights.
     if save_weights_only:
-        checkpoint_filepath = "/home/bp/Development/SGGS_ML/checkpoints_Unet/S_" + TrainingConfig.MODEL + "_" + str(num) + ".h5"
+        checkpoint_filepath =  "/home/bp/Development/SGGS_ML/checkpoints/Unet/S_" + TrainingConfig.MODEL + "_" + str(num) + ".h5"
 
     model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
         filepath=checkpoint_filepath,
@@ -217,8 +160,8 @@ def save_results(df, path):
 
 if __name__ == "__main__":
 
-    learning_rate = (5e-2, 1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 5e-5, 1e-5, 5e-6, 1e-6) #1e-4
-    batch_size = (20, 24, 28, 32) #(4, 8, 12, 16, 20, 24, 28, 32) # 16
+    learning_rate = (5e-2, 1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 5e-5, 1e-5, 5e-6, 1e-6)
+    batch_size = (4, 8, 12, 16, 20, 24, 28, 32) # 16
     system_config(SEED_VALUE=42)
     train_config = TrainingConfig()
     data_config = DatasetConfig()
@@ -263,8 +206,32 @@ if __name__ == "__main__":
             )
 
             # Build model.        
-            model = unet_model.get_unet_model(image_size=data_config.IMAGE_SIZE, 
-                                              num_classes=data_config.NUM_CLASSES)
+            backbone = keras_cv.models.ResNet50V2Backbone.from_preset(
+                preset=train_config.MODEL,
+                input_shape=data_config.IMAGE_SIZE + (3,),
+                load_weights=True,
+            )
+
+            model = models.transunet_2d(
+                (DatasetConfig.IMAGE_SIZE[0], DatasetConfig.IMAGE_SIZE[1], 3),
+                filter_num=[64, 128, 256, 512],
+                n_labels=12,
+                stack_num_down=2,
+                stack_num_up=2,
+                embed_dim=768,
+                num_mlp=3072,
+                num_heads=12,
+                num_transformer=12,
+                activation="ReLU",
+                mlp_activation="GELU",
+                output_activation="Softmax",
+                batch_norm=True,
+                pool=True,
+                unpool="bilinear",
+                backbone=backbone,
+                #weights='imagenet', 
+                name="transunet",
+            )
             # Get callbacks.
             callbacks = get_callbacks(train_config)
             # Define Loss.
@@ -285,8 +252,7 @@ if __name__ == "__main__":
                     callbacks=callbacks
                 )
                 save_results(history.history, train_config.HIST_DIR + '_' + str(num))
-                model.load_weights( "/home/bp/Development/SGGS_ML/checkpoints_Unet/S_" 
-                                   + TrainingConfig.MODEL + "_" + str(num) + ".h5") #train_config.CKPT_DIR)    
+                model.load_weights( "/home/bp/Development/SGGS_ML/checkpoints/Unet/S_" + TrainingConfig.MODEL + "_" + str(num) + ".h5") #train_config.CKPT_DIR)    
                 evaluate = model.evaluate(test_dataset)
                 #print("Test loss:", evaluate[2])
                 hist_df = pd.DataFrame(history.history)
@@ -326,9 +292,7 @@ if __name__ == "__main__":
                     }
             #result_df = result_df.append(new_row_data, ignore_index=True)
             result_df = pd.concat([result_df, pd.DataFrame([new_row_data])], ignore_index=True)
-            save_results(result_df, "/home/bp/Development/SGGS_ML/results/S_" + 
-                         str(num) + "_" + TrainingConfig.MODEL)
+            save_results(result_df, "/home/bp/Development/SGGS_ML/results/S_" + str(num) + "_" + TrainingConfig.MODEL)
             num += 1
             #print('Batchsize: ',batch, ' LearningRate: ', lr)
-    save_results(result_df, "/home/bp/Development/SGGS_ML/S_results" + 
-                 "_" + TrainingConfig.MODEL)
+    save_results(result_df, "/home/bp/Development/SGGS_ML/S_results" + "_" + TrainingConfig.MODEL)

@@ -22,7 +22,7 @@ import unet_model
 
 #import matplotlib.pyplot as plt
 
-num = 0
+num = 40
 
 def system_config(SEED_VALUE):
     # Set python `random` seed.
@@ -43,7 +43,7 @@ def load_path():
 
 segments = {
     0: 'Lumen',  # Lumen
-    1: 'Stenose',  # Stenose
+    1: 'Stenosis',  # Stenose
     2: 'Multi',  # Lumen and stenose
     }
 
@@ -54,13 +54,13 @@ class DatasetConfig:
     NUM_CLASSES: int = 2
     BRIGHTNESS_FACTOR: float = 0.2
     CONTRAST_FACTOR: float = 0.2
-    MASK: str = segments[1]
+    MASK: str = segments[0]
 
 @dataclass(frozen=True)
 class TrainingConfig:
     BACKBONE: str = "resnet50_v2_imagenet"
     WEIGHTS: str = 'imagenet'
-    MODEL: str = "Unet"
+    MODEL: str = "DeepLabV3Plus"
     EPOCHS: int = 100  # 100 # 35
     LEARNING_RATE: float = 1e-4 #1e-4
     TRAIN_NO : str = "00"
@@ -70,9 +70,9 @@ class TrainingConfig:
     HIST_DIR: str = os.path.join("/home/bp/Development/SGGS_ML/hist", "_".join(MODEL.split("_")[:2]),
                                         ""+"_".join(MODEL.split("_")[:2])+"_"+TRAIN_NO)
     
-    #print(CKPT_DIR)
-    #print(LOGS_DIR)
-    #print(HIST_DIR)
+    print(CKPT_DIR)
+    print(LOGS_DIR)
+    print(HIST_DIR)
 
 def unpackage_inputs(inputs):
     images = inputs["images"]
@@ -86,62 +86,6 @@ id2color = {
     2: (0, 0, 255),  # stenose
 }
 
-def get_model(img_size=(512,512), num_classes=2):
-    inputs = keras.Input(shape=img_size + (3,))
-
-    ### [First half of the network: downsampling inputs] ###
-
-    # Entry block
-    x = layers.Conv2D(32, 3, strides=2, padding="same")(inputs)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation("relu")(x)
-
-    previous_block_activation = x  # Set aside residual
-
-    # Blocks 1, 2, 3 are identical apart from the feature depth.
-    for filters in [64, 128, 256, 512]:
-        x = layers.Activation("relu")(x)
-        x = layers.SeparableConv2D(filters, 3, padding="same")(x)
-        x = layers.BatchNormalization()(x)
-
-        x = layers.Activation("relu")(x)
-        x = layers.SeparableConv2D(filters, 3, padding="same")(x)
-        x = layers.BatchNormalization()(x)
-
-        x = layers.MaxPooling2D(3, strides=2, padding="same")(x)
-
-        # Project residual
-        residual = layers.Conv2D(filters, 1, strides=2, padding="same")(
-            previous_block_activation
-        )
-        x = layers.add([x, residual])  # Add back residual
-        previous_block_activation = x  # Set aside next residual
-
-    ### [Second half of the network: upsampling inputs] ###
-
-    for filters in [512, 256, 128, 64, 32]:
-        x = layers.Activation("relu")(x)
-        x = layers.Conv2DTranspose(filters, 3, padding="same")(x)
-        x = layers.BatchNormalization()(x)
-
-        x = layers.Activation("relu")(x)
-        x = layers.Conv2DTranspose(filters, 3, padding="same")(x)
-        x = layers.BatchNormalization()(x)
-
-        x = layers.UpSampling2D(2)(x)
-
-        # Project residual
-        residual = layers.UpSampling2D(2)(previous_block_activation)
-        residual = layers.Conv2D(filters, 1, padding="same")(residual)
-        x = layers.add([x, residual])  # Add back residual
-        previous_block_activation = x  # Set aside next residual
-
-    # Add a per-pixel classification layer
-    outputs = layers.Conv2D(num_classes, 3, activation="softmax", padding="same")(x)
-
-    # Define the model
-    model = keras.Model(inputs, outputs)
-    return model
 
 def mean_iou(y_true, y_pred):
 
@@ -189,7 +133,7 @@ def get_callbacks(
 
     # Update file path if saving best model weights.
     if save_weights_only:
-        checkpoint_filepath = "/home/bp/Development/SGGS_ML/checkpoints_Unet/S_" + TrainingConfig.MODEL + "_" + str(num) + ".h5"
+        checkpoint_filepath =  "/home/bp/Development/SGGS_ML/checkpoints/DeeplabV3Plus/L_" + TrainingConfig.MODEL + "_" + str(num) + ".h5"
 
     model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
         filepath=checkpoint_filepath,
@@ -218,7 +162,7 @@ def save_results(df, path):
 if __name__ == "__main__":
 
     learning_rate = (5e-2, 1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 5e-5, 1e-5, 5e-6, 1e-6) #1e-4
-    batch_size = (20, 24, 28, 32) #(4, 8, 12, 16, 20, 24, 28, 32) # 16
+    batch_size = (4, 8, 12, 16, 20, 24, 28, 32) # 16
     system_config(SEED_VALUE=42)
     train_config = TrainingConfig()
     data_config = DatasetConfig()
@@ -239,7 +183,7 @@ if __name__ == "__main__":
                                        value_range=(0, 255)),
     ]
     )
-    
+
     for batch in batch_size:
         for lr in learning_rate:
             train_dataset = (
@@ -262,16 +206,21 @@ if __name__ == "__main__":
                         .prefetch(buffer_size=tf.data.AUTOTUNE)
             )
 
-            # Build model.        
-            model = unet_model.get_unet_model(image_size=data_config.IMAGE_SIZE, 
-                                              num_classes=data_config.NUM_CLASSES)
+            # Build model. 
+            backbone = keras_cv.models.ResNet50V2Backbone.from_preset(preset = train_config.MODEL,
+                                                          input_shape=data_config.IMAGE_SIZE+(3,),
+                                                          load_weights = True)
+            model = keras_cv.models.segmentation.DeepLabV3Plus(
+                                        num_classes=data_config.NUM_CLASSES, backbone=backbone,
+            )
+
             # Get callbacks.
             callbacks = get_callbacks(train_config)
             # Define Loss.
             loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False)
             # Compile model.
             model.compile(
-                optimizer=tf.keras.optimizers.Adam(lr), # train_config.LEARNING_RATE),
+                optimizer=tf.keras.optimizers.Adam(train_config.LEARNING_RATE),
                 loss=loss_fn,
                 metrics=["accuracy", mean_iou],
             )
@@ -285,8 +234,7 @@ if __name__ == "__main__":
                     callbacks=callbacks
                 )
                 save_results(history.history, train_config.HIST_DIR + '_' + str(num))
-                model.load_weights( "/home/bp/Development/SGGS_ML/checkpoints_Unet/S_" 
-                                   + TrainingConfig.MODEL + "_" + str(num) + ".h5") #train_config.CKPT_DIR)    
+                model.load_weights("/home/bp/Development/SGGS_ML/checkpoints/DeeplabV3Plus/L_" + TrainingConfig.MODEL + "_" + str(num) + ".h5") #train_config.CKPT_DIR)    
                 evaluate = model.evaluate(test_dataset)
                 #print("Test loss:", evaluate[2])
                 hist_df = pd.DataFrame(history.history)
@@ -326,9 +274,7 @@ if __name__ == "__main__":
                     }
             #result_df = result_df.append(new_row_data, ignore_index=True)
             result_df = pd.concat([result_df, pd.DataFrame([new_row_data])], ignore_index=True)
-            save_results(result_df, "/home/bp/Development/SGGS_ML/results/S_" + 
-                         str(num) + "_" + TrainingConfig.MODEL)
+            save_results(result_df, "/home/bp/Development/SGGS_ML/results/S_" + str(num) + "_" + TrainingConfig.MODEL)
             num += 1
             #print('Batchsize: ',batch, ' LearningRate: ', lr)
-    save_results(result_df, "/home/bp/Development/SGGS_ML/S_results" + 
-                 "_" + TrainingConfig.MODEL)
+    save_results(result_df, "/home/bp/Development/SGGS_ML/S_results" + "_" + TrainingConfig.MODEL)
